@@ -3,6 +3,10 @@ package scripting.lua;
 import Type.ValueType;
 import haxe.Constraints;
 
+#if HSCRIPT_SCRIPTED_ABSTRACTS
+import insanity.backend.types.Abstract;
+#end
+
 //
 // Functions that use a high amount of Reflections, which are somewhat CPU intensive
 // These functions are held together by duct tape
@@ -14,18 +18,19 @@ class ReflectionFunctions
 	
 	public static function implement() {
 		FunkinLua.registerFunction("getPropertyFromClass", function(classVar:String, variable:String, allowMaps:Bool = false) {
-			var cls:Dynamic = CustomType.resolveClass(classVar);
+			var cls:Dynamic = (CustomType.resolveClass(classVar) #if HSCRIPT_SCRIPTED_ABSTRACTS ?? AbstractTools.resolve(classVar) #end);
 			if (cls == null) {
-				FunkinLua.luaTrace('getPropertyFromClass: Class $classVar not found', false, false, ERROR);
+				FunkinLua.luaTrace('getPropertyFromClass: Type $classVar not found', false, false, ERROR);
 				return null;
 			}
 			
-			return LuaUtils.getPropertyLoop(variable, allowMaps, cls);
+			final r:Dynamic = LuaUtils.getPropertyLoop(variable, allowMaps, cls);
+			return (#if HSCRIPT_SCRIPTED_ABSTRACTS AbstractTools.isAbstract(r) ? r.__a : #end r);
 		});
 		FunkinLua.registerFunction("setPropertyFromClass", function(classVar:String, variable:String, value:Dynamic, allowMaps:Bool = false, allowInstances:Bool = false) {
-			var cls:Dynamic = CustomType.resolveClass(classVar);
+			var cls:Dynamic = (CustomType.resolveClass(classVar) #if HSCRIPT_SCRIPTED_ABSTRACTS ?? AbstractTools.resolve(classVar) #end);
 			if (cls == null) {
-				FunkinLua.luaTrace('getPropertyFromClass: Class $classVar not found', false, false, ERROR);
+				FunkinLua.luaTrace('getPropertyFromClass: Type $classVar not found', false, false, ERROR);
 				return null;
 			}
 			
@@ -33,7 +38,14 @@ class ReflectionFunctions
 			return LuaUtils.setPropertyLoop(variable, value, allowMaps, cls);
 		});
 		FunkinLua.registerFunction("callMethodFromClass", function(className:String, funcToRun:String, ?args:Array<Dynamic>) {
-			return callMethodFromObject(CustomType.resolveClass(className), funcToRun, parseInstances(args ?? []));
+			var cls:Dynamic = (CustomType.resolveClass(className) #if HSCRIPT_SCRIPTED_ABSTRACTS ?? AbstractTools.resolve(className) #end);
+			if (cls == null) {
+				FunkinLua.luaTrace('getPropertyFromClass: Type $className not found', false, false, ERROR);
+				return null;
+			}
+			
+			final r:Dynamic = callMethodFromObject(cls, funcToRun, parseInstances(args ?? []));
+			return (#if HSCRIPT_SCRIPTED_ABSTRACTS AbstractTools.isAbstract(r) ? r.__a : #end r);
 		});
 
 		FunkinLua.registerFunction("createInstance", function(variableToSave:String, className:String, ?args:Array<Dynamic>) {
@@ -133,16 +145,17 @@ class ReflectionFunctions
 			}
 		});
 		funk.addLocalCallback("addToGroup", function(group:String, tag:String, index:Int = -1) {
-			var obj:FlxSprite = LuaUtils.getPropertyLoop(tag, false, funk.parentState);
-			if (obj == null || obj.destroy == null) {
+			var obj:Dynamic = (parseSingleInstance(tag, true) ?? LuaUtils.getObjectDirectly(tag));
+			
+			if (obj == null) {
 				FunkinLua.luaTrace('addToGroup: Object $tag is not valid!', false, false, ERROR);
-				return;
+				return null;
 			}
 			
-			var groupOrArray:Dynamic = LuaUtils.getPropertyLoop(group, false, funk.parentState);
+			var groupOrArray:Dynamic = (parseSingleInstance(group, true) ?? LuaUtils.getObjectDirectly(group));
 			if (groupOrArray == null) {
 				FunkinLua.luaTrace('addToGroup: Group/Array $group is not valid!', false, false, ERROR);
-				return;
+				return null;
 			}
 			
 			if (index < 0) {
@@ -156,28 +169,28 @@ class ReflectionFunctions
 			} else {
 				groupOrArray.insert(index, obj);
 			}
+			
+			return tag;
 		});
 		funk.addLocalCallback("removeFromGroup", function(group:String, index:Int = -1, ?tag:String, destroy:Bool = true) {
-			var obj:FlxSprite = null;
-			if (tag != null) {
-				obj = LuaUtils.getPropertyLoop(tag, false, funk.parentState);
-				if (obj == null || obj.destroy == null) {
-					FunkinLua.luaTrace('removeFromGroup: Object $tag is not valid!', false, false, ERROR);
-					return;
-				}
+			var obj:Dynamic = (parseSingleInstance(tag, true) ?? LuaUtils.getObjectDirectly(tag));
+			
+			if (obj == null) {
+				FunkinLua.luaTrace('removeFromGroup: Object $tag is not valid!', false, false, ERROR);
+				return null;
 			}
 			
-			var groupOrArray:Dynamic = LuaUtils.getPropertyLoop(group, false, funk.parentState);
+			var groupOrArray:Dynamic = (parseSingleInstance(group, true) ?? LuaUtils.getObjectDirectly(group));
 			if (groupOrArray == null) {
 				FunkinLua.luaTrace('removeFromGroup: Group/Array $group is not valid!', false, false, ERROR);
-				return;
+				return null;
 			}
 			
 			switch (Type.typeof(groupOrArray)) {
 				case TClass(Array): //Is Array
 					if (obj != null) {
 						groupOrArray.remove(obj);
-						if (destroy) obj.destroy();
+						if (destroy && obj.destroy != null) obj.destroy();
 					} else {
 						groupOrArray.remove(groupOrArray[index]);
 					}
@@ -185,8 +198,10 @@ class ReflectionFunctions
 				default: //Is Group
 					if (obj == null) obj = CustomReflect.getProperty(groupOrArray, 'members')[index];
 					groupOrArray.remove(obj, true);
-					if (destroy) obj.destroy();
+					if (destroy && obj.destroy != null) obj.destroy();
 			}
+			
+			return tag;
 		});
 		funk.addLocalCallback("callMethod", function(funcToRun:String, args:Array<Dynamic>) {
 			return callMethodFromObject(funk.parentState, funcToRun, parseInstances(args ?? []));
@@ -215,8 +230,12 @@ class ReflectionFunctions
 						instance.insert(pos, obj);
 					}
 				}
+				
+				return objectName;
 			} else {
 				FunkinLua.luaTrace('addLuaSprite: Can\'t add what doesn\'t exist~ ($objectName)', false, false, ERROR);
+				
+				return null;
 			}
 		}
 		funk.addLocalCallback('addLuaSprite', addInstance);
