@@ -1528,21 +1528,20 @@ class PlayState extends ScriptedState
 		seenCutscene = true;
 		
 		strumLineNotes.revive();
+		for (i in 0...playerStrums.length) {
+			setOnScripts('defaultPlayerStrumX' + i, playerStrums.members[i].x);
+			setOnScripts('defaultPlayerStrumY' + i, playerStrums.members[i].y);
+		}
+		for (i in 0...opponentStrums.length) {
+			setOnScripts('defaultOpponentStrumX' + i, opponentStrums.members[i].x);
+			setOnScripts('defaultOpponentStrumY' + i, opponentStrums.members[i].y);
+		}
 		
 		var ret:Dynamic = callOnScripts('onStartCountdown', null, true);
 		if (ret != LuaUtils.Function_Stop) {
 			if (skipCountdown || startOnTime > 0) skipArrowStartTween = true;
 
 			canPause = true;
-			for (i in 0...playerStrums.length) {
-				setOnScripts('defaultPlayerStrumX' + i, playerStrums.members[i].x);
-				setOnScripts('defaultPlayerStrumY' + i, playerStrums.members[i].y);
-			}
-			for (i in 0...opponentStrums.length) {
-				setOnScripts('defaultOpponentStrumX' + i, opponentStrums.members[i].x);
-				setOnScripts('defaultOpponentStrumY' + i, opponentStrums.members[i].y);
-				//if(ClientPrefs.data.middleScroll) opponentStrums.members[i].visible = false;
-			}
 			
 			if (!skipArrowStartTween && !isStoryMode && startOnTime <= 0)
 				tweenInArrows();
@@ -2420,15 +2419,20 @@ class PlayState extends ScriptedState
 
 			while (unspawnNotes.length > 0 && unspawnNotes[0].strumTime - Conductor.songPosition < time)
 			{
-				var dunceNote:Note = unspawnNotes[0];
+				var dunceNote:Note = unspawnNotes.shift();
+				
+				if (dunceNote.noteData < 0 || (dunceNote.mustPress ? playerStrums : opponentStrums).members[dunceNote.noteData] == null) {
+					#if debug trace('INVALID NOTEDATA ${dunceNote.noteData}'); #end
+					
+					dunceNote.destroy();
+					continue;
+				}
+				
 				notes.insert(0, dunceNote);
 				dunceNote.spawned = true;
-
+				
 				callOnLuas('onSpawnNote', [notes.members.indexOf(dunceNote), dunceNote.noteData, dunceNote.noteType, dunceNote.isSustainNote, dunceNote.strumTime]);
 				callOnHScript('onSpawnNote', [dunceNote]);
-
-				var index:Int = unspawnNotes.indexOf(dunceNote);
-				unspawnNotes.splice(index, 1);
 			}
 		}
 
@@ -2451,10 +2455,7 @@ class PlayState extends ScriptedState
 							if (daNote == null || !daNote.exists || !daNote.alive)
 								continue;
 							
-							var strumGroup:FlxTypedGroup<StrumNote> = playerStrums;
-							if(!daNote.mustPress) strumGroup = opponentStrums;
-
-							var strum:StrumNote = strumGroup.members[daNote.noteData];
+							var strum:StrumNote = (daNote.mustPress ? playerStrums : opponentStrums).members[daNote.noteData];
 							daNote.followStrumNote(strum, songSpeed / playbackRate);
 
 							if (daNote.mustPress) {
