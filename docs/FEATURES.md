@@ -1,11 +1,11 @@
-# Friday Night Funkin' - Psych Engine
-![PsychionalEngineLogo](img/PsychEngineLogoTweak.png)
+# Friday Night Funkin' - Psych Engine Mint
+![Psych Engine Mint Logo](img/PsychEngineMint.png)
 
-Engine originally used on [Mind Games Mod](https://gamebanana.com/mods/301107), intended to be a fix for the vanilla version's many issues while keeping the casual play aspect of it. Also aiming to be an easier alternative to newbie coders.
+Fork of the engine originally used on [Mind Games Mod](https://gamebanana.com/mods/301107), intended to be a fix for the vanilla version's many issues while keeping the casual play aspect of it. Also aiming to be an easier alternative to newbie coders.
 
 ## Installation:
 
-Refer to [the Build Instructions](/BUILDING.md)
+Refer to [the Build Instructions](/BUILDING.md)!
 
 ## Customization:
 
@@ -20,7 +20,19 @@ Same goes for *Scripts*, comment out or delete the lines with `LUA_ALLOWED` and 
 ## Softcoding (.lua/.hx)
 You can head over to [the wiki](https://shadowmario.github.io/psychengine.lua) to learn more about Psych Engine's Lua API.
 
-## Credits:
+# Credits
+
+## Psych Engine Mint
+* [emi3](https://github.com/inky03) - Fork Author, Main Programmer and Additional Art for Psych Engine Mint.
+
+### Contributors
+* [Moonlight_Catalyst](https://github.com/MoonlightCatalyst)
+* [SquidBoy84](https://github.com/SquidBoy84)
+* [BobbyDX](https://github.com/bobbydeluxe)
+* [Joseph](https://github.com/Josephjr05)
+* [Shadz](https://github.com/ShadzXD)
+
+## Psych Engine
 * Shadow Mario - Main Programmer and Head of Psych Engine.
 * Riveren - Main Artist/Animator of Psych Engine.
 
@@ -123,6 +135,4 @@ You can head over to [the wiki](https://shadowmario.github.io/psychengine.lua) t
 * You can enable "Combo Stacking" in Gameplay Options. This causes the combo sprites to just be one sprite with an animation rather than sprites spawning each note hit.
 
 
-#### Psych Engine by ShadowMario, Friday Night Funkin' by ninjamuffin99
-
-#### Psych Engine Mint by emi3, Moonlight_Catalyst, BobbyDX
+#### Psych Engine Mint by emi3, Psych Engine by ShadowMario, Friday Night Funkin' by ninjamuffin99
