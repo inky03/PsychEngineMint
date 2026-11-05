@@ -39,12 +39,21 @@ class EditorPlayState extends ScriptedSubState
 	var grpNoteSplashes:FlxTypedGroup<NoteSplash>;
 	
 	var combo:Int = 0;
-	var keysArray:Array<String> = [
-		'note_left',
-		'note_down',
-		'note_up',
-		'note_right'
-	];
+	
+	var input:states.PlayState.PlayStateInput;
+	var keysArray(default, set):Array<String>;
+	function set_keysArray(array:Array<String>):Array<String> {
+		input.keyBinds.resize(0);
+		input.gamepadBinds.resize(0);
+		input.populate(array.length);
+		
+		for (bind in array) {
+			input.keyBinds.push(Controls.instance.keyboardBinds.get(bind).copy());
+			input.gamepadBinds.push(Controls.instance.gamepadBinds.get(bind).copy());
+		}
+		
+		return keysArray = array;
+	}
 	
 	var songHits:Int = 0;
 	var songMisses:Int = 0;
@@ -88,6 +97,14 @@ class EditorPlayState extends ScriptedSubState
 	{
 		Conductor.safeZoneOffset = (ClientPrefs.data.safeFrames / 60) * 1000 * playbackRate;
 		Conductor.songPosition -= startOffset;
+		
+		input = cast add(new states.PlayState.PlayStateInput());
+		keysArray = [
+			'note_left',
+			'note_down',
+			'note_up',
+			'note_right'
+		];
 		
 		startOffset = Conductor.crochet * playbackRate;
 		timerToStart = startOffset;
@@ -147,9 +164,9 @@ class EditorPlayState extends ScriptedSubState
 		
 		generateSong();
 		_noteList = null;
-
-		FlxG.stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyPress);
-		FlxG.stage.addEventListener(KeyboardEvent.KEY_UP, onKeyRelease);
+		
+		input.onInputDown.add(keyPressed);
+		input.onInputUp.add(keyReleased);
 		
 		#if DISCORD_ALLOWED
 		// Updating Discord Rich Presence (with Time Left)
@@ -279,8 +296,6 @@ class EditorPlayState extends ScriptedSubState
 
 	override function destroy()
 	{
-		FlxG.stage.removeEventListener(KeyboardEvent.KEY_DOWN, onKeyPress);
-		FlxG.stage.removeEventListener(KeyboardEvent.KEY_UP, onKeyRelease);
 		FlxG.mouse.visible = true;
 		NoteSplash.configs.clear();
 		FlxG.sound.list.remove(inst);
@@ -643,27 +658,8 @@ class EditorPlayState extends ScriptedSubState
 		});
 	}
 
-	private function onKeyPress(event:KeyboardEvent):Void
-	{
-		var eventKey:FlxKey = event.keyCode;
-		var key:Int = PlayState.getKeyFromEvent(keysArray, eventKey);
-		//trace('Pressed: ' + eventKey);
-
-		if (!controls.controllerMode)
-		{
-			#if debug
-			//Prevents crash specifically on debug without needing to try catch shit
-			@:privateAccess if (!FlxG.keys._keyListMap.exists(eventKey)) return;
-			#end
-	
-			if(FlxG.keys.checkStatus(eventKey, JUST_PRESSED)) keyPressed(key);
-		}
-	}
-
 	private function keyPressed(key:Int)
 	{
-		if(key < 0) return;
-		
 		if (callOnScripts('onKeyPressPre', [key]) == LuaUtils.Function_Stop) return;
 
 		// more accurate hit time for the ratings?
@@ -673,7 +669,7 @@ class EditorPlayState extends ScriptedSubState
 		// obtain notes that the player can hit
 		var highestNote:Note = null;
 		for (n in notes) {
-			if (n != null && !n.isSustainNote && n.noteData == key && n.canBeHit && n.mustPress && !n.tooLate && !n.wasGoodHit && !n.blockHit) {
+			if (n?.exists && !n.isSustainNote && n.noteData == key && n.canBeHit && n.mustPress && !n.tooLate && !n.wasGoodHit && !n.blockHit) {
 				if (highestNote == null || n.hitPriority > highestNote.hitPriority || (n.hitPriority == highestNote.hitPriority && n.strumTime < highestNote.strumTime))
 					highestNote = n;
 			}
@@ -695,15 +691,6 @@ class EditorPlayState extends ScriptedSubState
 		callOnScripts('onKeyPress', [key]);
 	}
 
-	private function onKeyRelease(event:KeyboardEvent):Void
-	{
-		var eventKey:FlxKey = event.keyCode;
-		var key:Int = PlayState.getKeyFromEvent(keysArray, eventKey);
-		//trace('Pressed: ' + eventKey);
-
-		if(!controls.controllerMode && key > -1) keyReleased(key);
-	}
-
 	private function keyReleased(key:Int)
 	{
 		if (callOnScripts('onKeyReleasePre', [key]) == LuaUtils.Function_Stop) return;
@@ -721,48 +708,17 @@ class EditorPlayState extends ScriptedSubState
 	// Hold notes
 	private function keysCheck():Void
 	{
-		// HOLDING
-		var holdArray:Array<Bool> = [];
-		var pressArray:Array<Bool> = [];
-		var releaseArray:Array<Bool> = [];
-		for (key in keysArray)
-		{
-			holdArray.push(controls.pressed(key));
-			pressArray.push(controls.justPressed(key));
-			releaseArray.push(controls.justReleased(key));
+		for (n in notes) { // I can't do a filter here, that's kinda awesome
+			var canHit:Bool = (n != null && n.canBeHit && n.mustPress &&
+				!n.tooLate && !n.wasGoodHit && !n.blockHit);
+
+			if (guitarHeroSustains)
+				canHit = canHit && n.parent != null && n.parent.wasGoodHit;
+
+			if (canHit && n.isSustainNote && input.activeInputs[n.noteData])
+				goodNoteHit(n);
 		}
-
-		// TO DO: Find a better way to handle controller inputs, this should work for now
-		if(controls.controllerMode && pressArray.contains(true))
-			for (i in 0...pressArray.length)
-				if(pressArray[i])
-					keyPressed(i);
-
-		// rewritten inputs???
-		if (notes.length > 0) {
-			for (n in notes) { // I can't do a filter here, that's kinda awesome
-				var canHit:Bool = (n != null && n.canBeHit && n.mustPress &&
-					!n.tooLate && !n.wasGoodHit && !n.blockHit);
-
-				if (guitarHeroSustains)
-					canHit = canHit && n.parent != null && n.parent.wasGoodHit;
-
-				if (canHit && n.isSustainNote) {
-					var released:Bool = !holdArray[n.noteData];
-					
-					if (!released)
-						goodNoteHit(n);
-				}
-			}
-		}
-
-		// TO DO: Find a better way to handle controller inputs, this should work for now
-		if(controls.controllerMode && releaseArray.contains(true))
-			for (i in 0...releaseArray.length)
-				if(releaseArray[i])
-					keyReleased(i);
 	}
-
 	
 	function opponentNoteHit(note:Note):Void
 	{

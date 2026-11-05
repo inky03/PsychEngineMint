@@ -11,6 +11,8 @@ import flixel.util.FlxSort;
 import flixel.util.FlxStringUtil;
 import flixel.util.FlxSave;
 import flixel.input.keyboard.FlxKey;
+import flixel.input.gamepad.FlxGamepad;
+import flixel.input.gamepad.FlxGamepadInputID;
 import flixel.animation.FlxAnimationController;
 import lime.utils.Assets;
 import openfl.utils.Assets as OpenFlAssets;
@@ -43,6 +45,141 @@ import psychlua.*;
 import psychlua.LuaUtils;
 import psychlua.HScript;
 #end
+
+class PlayStateInput extends FlxBasic { // loosely based on nve
+	public var keyBinds:Array<Array<FlxKey>> = [];
+	public var gamepadBinds:Array<Array<flixel.input.gamepad.FlxGamepadInputID>> = [];
+	public var activeInputs:Array<Bool> = [];
+	
+	var gamepads:Array<FlxGamepad> = [];
+	
+	public var onInputDown:flixel.util.FlxSignal.FlxTypedSignal<Int -> Void> = new flixel.util.FlxSignal.FlxTypedSignal();
+	public var onInputUp:flixel.util.FlxSignal.FlxTypedSignal<Int -> Void> = new flixel.util.FlxSignal.FlxTypedSignal();
+	
+	public function new() {
+		super();
+		
+		FlxG.stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyboardInput);
+		FlxG.stage.addEventListener(KeyboardEvent.KEY_UP, onKeyboardInput);
+		
+		for (i in 0 ... FlxG.gamepads.numActiveGamepads) hookGamepad(FlxG.gamepads.getByID(i));
+		
+		FlxG.gamepads.deviceConnected.add(hookGamepad);
+		FlxG.gamepads.deviceDisconnected.add(unhookGamepad);
+	}
+	public function populate(i:Int):Void {
+		activeInputs = [for (_ in 0 ... i) false];
+	}
+	
+	var gamepadEvents:Map<FlxGamepad, Dynamic> = [];
+	var gamepadDigital:Map<FlxGamepad, Map<lime.ui.GamepadAxis, Int>> = [];
+	function hookGamepad(gamepad:FlxGamepad):Void {
+		final limeGamepad:lime.ui.Gamepad = getLimeGamepad(gamepad);
+		if (limeGamepad == null) return trace('oh');
+		
+		final events:Dynamic = {};
+		limeGamepad.onAxisMove.add(events.onAxisMove = (axis:lime.ui.GamepadAxis, x:Float) -> onGamepadAxisMove(gamepad, axis, x));
+		limeGamepad.onButtonDown.add(events.onButtonDown = (button:lime.ui.GamepadButton) -> onGamepadInput(gamepad, button, true));
+		limeGamepad.onButtonUp.add(events.onButtonUp = (button:lime.ui.GamepadButton) -> onGamepadInput(gamepad, button, false));
+		
+		gamepadDigital.set(gamepad, [LEFT_X => 0, LEFT_Y => 0, RIGHT_X => 0, RIGHT_Y => 0, TRIGGER_LEFT => 0, TRIGGER_RIGHT => 0]);
+		gamepadEvents.set(gamepad, events);
+		gamepads.push(gamepad);
+	}
+	function unhookGamepad(gamepad:FlxGamepad):Void {
+		final limeGamepad:lime.ui.Gamepad = getLimeGamepad(gamepad);
+		if (limeGamepad == null) return;
+		
+		final events:Dynamic = gamepadEvents.get(gamepad);
+		limeGamepad.onAxisMove.remove(events?.onAxisMove);
+		limeGamepad.onButtonDown.remove(events?.onButtonDown);
+		limeGamepad.onButtonUp.remove(events?.onButtonUp);
+		
+		gamepadDigital.remove(gamepad);
+		gamepadEvents.remove(gamepad);
+		gamepads.remove(gamepad);
+	}
+	function getLimeGamepad(gamepad:FlxGamepad):lime.ui.Gamepad {
+		// for some reason __gamepad is NEVER DEFINED IN official openfl libary so just look for it in gameinput
+		return @:privateAccess {
+			final gamepadDevice:openfl.ui.GameInputDevice = gamepad._device;
+			
+			for (gamepad => device in openfl.ui.GameInput.__devices) if (device == gamepadDevice) return gamepad;
+			
+			return null;
+		}
+	}
+	
+	function getBindFromKey(key:FlxKey):Int {
+		for (i in 0 ... keyBinds.length) if (keyBinds[i]?.contains(key)) return i;
+		
+		return -1;
+	}
+	function getBindFromButton(button:FlxGamepadInputID):Int {
+		for (i in 0 ... gamepadBinds.length) if (gamepadBinds[i]?.contains(button)) return i;
+		
+		return -1;
+	}
+	inline function getIDFromAxis(gamepad:FlxGamepad, axis:lime.ui.GamepadAxis, x:Float):FlxGamepadInputID {
+		return switch (axis) { // kinda losing mymind here idk if this is a good solution lmao
+			case LEFT_X: (x < 0 ? LEFT_STICK_DIGITAL_LEFT : LEFT_STICK_DIGITAL_RIGHT);
+			case LEFT_Y: (x < 0 ? LEFT_STICK_DIGITAL_UP : LEFT_STICK_DIGITAL_DOWN);
+			
+			case RIGHT_X: (x < 0 ? RIGHT_STICK_DIGITAL_LEFT : RIGHT_STICK_DIGITAL_RIGHT);
+			case RIGHT_Y: (x < 0 ? RIGHT_STICK_DIGITAL_UP : RIGHT_STICK_DIGITAL_DOWN);
+			
+			default: gamepad.mapping.getID(cast axis);
+		};
+	}
+	
+	inline function doInput(bind:Int, down:Bool):Void {
+		if (bind < 0) return;
+		
+		if (activeInputs[bind] != down) {
+			activeInputs[bind] = down;
+			
+			(down ? onInputDown : onInputUp).dispatch(bind);
+		}
+	}
+	inline function onKeyboardInput(event:KeyboardEvent):Void {
+		doInput(getBindFromKey(event.keyCode), event.type == KeyboardEvent.KEY_DOWN);
+	}
+	inline function onGamepadInput(gamepad:FlxGamepad, button:lime.ui.GamepadButton, down:Bool):Void {
+		doInput(getBindFromButton(gamepad.mapping.getID(cast button + 6)), down);
+	}
+	inline function onGamepadAxisMove(gamepad:FlxGamepad, axis:lime.ui.GamepadAxis, x:Float):Void {
+		final digital = gamepadDigital.get(gamepad);
+		
+		final push:Bool = (Math.abs(x) > gamepad.deadZone);
+		final leftStick = gamepad.mapping.leftStick, rightStick = gamepad.mapping.rightStick;
+		
+		if (push) {
+			if (digital.get(axis) != 0 && !FlxMath.sameSign(x, digital.get(axis))) doInput(getBindFromButton(getIDFromAxis(gamepad, axis, digital.get(axis))), false);
+			
+			digital.set(axis, FlxMath.signOf(x));
+			
+			doInput(getBindFromButton(getIDFromAxis(gamepad, axis, digital.get(axis))), true);
+		} else if (digital.get(axis) != 0) {
+			doInput(getBindFromButton(getIDFromAxis(gamepad, axis, digital.get(axis))), false);
+			
+			digital.set(axis, 0);
+		}
+	}
+	
+	public override function destroy():Void {
+		FlxG.gamepads.deviceConnected.remove(hookGamepad);
+		FlxG.gamepads.deviceDisconnected.remove(unhookGamepad);
+		
+		while (gamepads.length > 0) unhookGamepad(gamepads[0]);
+		
+		FlxG.stage.removeEventListener(KeyboardEvent.KEY_DOWN, onKeyboardInput);
+		FlxG.stage.removeEventListener(KeyboardEvent.KEY_UP, onKeyboardInput);
+		
+		super.destroy();
+		
+		// trace('KILLED INPUT');
+	}
+}
 
 /*here's some useful tips if you are making a mod in source:
 
@@ -508,9 +645,21 @@ class PlayState extends ScriptedState
 	 * Suffix for the sounds played during the countdown.
 	*/
 	public var introSoundsSuffix:String = '';
-
-	// Less laggy controls
-	private var keysArray:Array<String>;
+	
+	public var input:PlayStateInput;
+	public var keysArray(default, set):Array<String>;
+	function set_keysArray(array:Array<String>):Array<String> {
+		input.keyBinds.resize(0);
+		input.gamepadBinds.resize(0);
+		input.populate(array.length);
+		
+		for (bind in array) {
+			input.keyBinds.push(Controls.instance.keyboardBinds.get(bind).copy());
+			input.gamepadBinds.push(Controls.instance.gamepadBinds.get(bind).copy());
+		}
+		
+		return keysArray = array;
+	}
 
 	// Callbacks for stages
 	/**
@@ -544,7 +693,8 @@ class PlayState extends ScriptedState
 
 		PauseSubState.songName = null; //Reset to default
 		playbackRate = ClientPrefs.getGameplaySetting('songspeed');
-
+		
+		input = cast add(new PlayStateInput());
 		keysArray = [
 			'note_left',
 			'note_down',
@@ -878,8 +1028,8 @@ class PlayState extends ScriptedState
 		startCallback();
 		RecalculateRating(false, false);
 		
-		FlxG.stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyPress);
-		FlxG.stage.addEventListener(KeyboardEvent.KEY_UP, onKeyRelease);
+		input.onInputDown.add(keyPressed);
+		input.onInputUp.add(keyReleased);
 		
 		if (PauseSubState.songName != null)
 			Paths.music(PauseSubState.songName);
@@ -2209,15 +2359,14 @@ class PlayState extends ScriptedState
 
 		if (startedCountdown && !paused)
 		{
-			Conductor.songPosition += (elapsed * 1000 * playbackRate);
+			Conductor.songPosition += elapsed * 1000 * playbackRate;
 			
 			if (!startingSong && FlxG.sound.music?.playing)
 			{
-				final musicTime:Float = (@:privateAccess FlxG.sound.music._channel.position + Conductor.offset);
-				final maxDesync:Float = (1000 / 60 / playbackRate);
-				
-				if (Math.abs(Conductor.songPosition - musicTime) > maxDesync)
-					Conductor.songPosition = musicTime;
+				Conductor.songPosition = FlxMath.lerp(FlxG.sound.music.time + Conductor.offset, Conductor.songPosition, Math.exp(-elapsed * 5));
+				var timeDiff:Float = Math.abs((FlxG.sound.music.time + Conductor.offset) - Conductor.songPosition);
+				if (timeDiff > 1000 * playbackRate)
+					Conductor.songPosition = Conductor.songPosition + 1000 * FlxMath.signOf(timeDiff);
 			}
 		}
 
@@ -3227,23 +3376,6 @@ class PlayState extends ScriptedState
 	}
 
 	public var strumsBlocked:Array<Bool> = [];
-	private function onKeyPress(event:KeyboardEvent):Void
-	{
-
-		var eventKey:FlxKey = event.keyCode;
-		var key:Int = getKeyFromEvent(keysArray, eventKey);
-
-		if (!controls.controllerMode)
-		{
-			#if debug
-			//Prevents crash specifically on debug without needing to try catch shit
-			@:privateAccess if (!FlxG.keys._keyListMap.exists(eventKey)) return;
-			#end
-
-			if(FlxG.keys.checkStatus(eventKey, JUST_PRESSED)) keyPressed(key);
-		}
-	}
-
 	private function keyPressed(key:Int)
 	{
 		if (cpuControlled || paused || inCutscene || key < 0 || key >= playerStrums.length || !generatedMusic || endingSong || boyfriend.stunned) return;
@@ -3252,14 +3384,14 @@ class PlayState extends ScriptedState
 		if(ret == LuaUtils.Function_Stop) return;
 		
 		// more accurate hit time for the ratings?
-		final musicTime:Float = (FlxG.sound.music.playing ? @:privateAccess FlxG.sound.music._channel.position : Conductor.songPosition);
-		final lastTime:Float = Conductor.songPosition;
-		Conductor.songPosition = (musicTime + Conductor.offset);
+		var lastTime:Float = Conductor.songPosition;
+		if (Conductor.songPosition >= 0 && !startingSong && FlxG.sound.music?.playing)
+			Conductor.songPosition = FlxG.sound.music.time + Conductor.offset;
 		
 		// obtain notes that the player can hit
 		var highestNote:Note = null;
 		for (n in notes) {
-			if (n != null && !n.isSustainNote && n.noteData == key && !strumsBlocked[n.noteData] && n.canBeHit && n.mustPress && !n.tooLate && !n.wasGoodHit && !n.blockHit) {
+			if (n?.exists && !n.isSustainNote && n.noteData == key && !strumsBlocked[n.noteData] && n.canBeHit && n.mustPress && !n.tooLate && !n.wasGoodHit && !n.blockHit) {
 				if (highestNote == null || n.hitPriority > highestNote.hitPriority || (n.hitPriority == highestNote.hitPriority && n.strumTime < highestNote.strumTime))
 					highestNote = n;
 			}
@@ -3289,13 +3421,6 @@ class PlayState extends ScriptedState
 		
 		callOnScripts('onKeyPress', [key]);
 	}
-	
-	private function onKeyRelease(event:KeyboardEvent):Void
-	{
-		var eventKey:FlxKey = event.keyCode;
-		var key:Int = getKeyFromEvent(keysArray, eventKey);
-		if(!controls.controllerMode && key > -1) keyReleased(key);
-	}
 
 	private function keyReleased(key:Int)
 	{
@@ -3313,73 +3438,28 @@ class PlayState extends ScriptedState
 		callOnScripts('onKeyRelease', [key]);
 	}
 
-	public static function getKeyFromEvent(arr:Array<String>, key:FlxKey):Int
-	{
-		if(key != NONE)
-		{
-			for (i in 0...arr.length)
-			{
-				var note:Array<FlxKey> = Controls.instance.keyboardBinds[arr[i]];
-				for (noteKey in note)
-					if(key == noteKey)
-						return i;
-			}
-		}
-		return -1;
-	}
-
 	// Hold notes
 	private function keysCheck():Void
 	{
-		// HOLDING
-		var holdArray:Array<Bool> = [];
-		var pressArray:Array<Bool> = [];
-		var releaseArray:Array<Bool> = [];
-		for (key in keysArray)
-		{
-			holdArray.push(controls.pressed(key));
-			pressArray.push(controls.justPressed(key));
-			releaseArray.push(controls.justReleased(key));
+		if (!startedCountdown || !generatedMusic || inCutscene || boyfriend.stunned) return;
+		
+		for (n in notes) {
+			var canHit:Bool = (n != null && !strumsBlocked[n.noteData] && n.canBeHit
+				&& n.mustPress && !n.tooLate && !n.wasGoodHit && !n.blockHit);
+
+			if (guitarHeroSustains)
+				canHit = canHit && n.parent != null && n.parent.wasGoodHit;
+
+			if (canHit && n.isSustainNote && input.activeInputs[n.noteData])
+				goodNoteHit(n);
 		}
 
-		// TO DO: Find a better way to handle controller inputs, this should work for now
-		if(controls.controllerMode && pressArray.contains(true))
-			for (i in 0...pressArray.length)
-				if(pressArray[i] && strumsBlocked[i] != true)
-					keyPressed(i);
+		if (!input.activeInputs.contains(true) || endingSong)
+			playerDance();
 
-		if (startedCountdown && !inCutscene && !boyfriend.stunned && generatedMusic)
-		{
-			if (notes.length > 0) {
-				for (n in notes) { // I can't do a filter here, that's kinda awesome
-					var canHit:Bool = (n != null && !strumsBlocked[n.noteData] && n.canBeHit
-						&& n.mustPress && !n.tooLate && !n.wasGoodHit && !n.blockHit);
-
-					if (guitarHeroSustains)
-						canHit = canHit && n.parent != null && n.parent.wasGoodHit;
-
-					if (canHit && n.isSustainNote) {
-						var released:Bool = !holdArray[n.noteData];
-
-						if (!released)
-							goodNoteHit(n);
-					}
-				}
-			}
-
-			if (!holdArray.contains(true) || endingSong)
-				playerDance();
-
-			#if ACHIEVEMENTS_ALLOWED
-			else checkForAchievement(['oversinging']);
-			#end
-		}
-
-		// TO DO: Find a better way to handle controller inputs, this should work for now
-		if((controls.controllerMode || strumsBlocked.contains(true)) && releaseArray.contains(true))
-			for (i in 0...releaseArray.length)
-				if(releaseArray[i] || strumsBlocked[i] == true)
-					keyReleased(i);
+		#if ACHIEVEMENTS_ALLOWED
+		else checkForAchievement(['oversinging']);
+		#end
 	}
 
 	/**
@@ -3737,10 +3817,7 @@ class PlayState extends ScriptedState
 			videoCutscene = null;
 		}
 		#end
-
-		FlxG.stage.removeEventListener(KeyboardEvent.KEY_DOWN, onKeyPress);
-		FlxG.stage.removeEventListener(KeyboardEvent.KEY_UP, onKeyRelease);
-
+		
 		FlxG.camera.filters = [];
 
 		#if FLX_PITCH if (FlxG.sound.music != null) FlxG.sound.music.pitch = 1; #end
