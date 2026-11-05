@@ -20,9 +20,6 @@ import lime.app.Application;
 import states.TitleState;
 
 #if HSCRIPT_ALLOWED
-#if (!macro && HSCRIPT_SCRIPTED_CLASSES)
-import scripting.hscript.ScriptedClasses;
-#end
 import scripting.hscript.FunkinHscript;
 #end
 #if GLOBAL_SCRIPTS

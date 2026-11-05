@@ -481,15 +481,10 @@ class FunkinHscript extends Script implements FunkinScript {
 		}
 		
 		LuaUtils.lastCalledHScript = this;
-		
-		try {
-			return super.call(funcToRun, args);
-		} catch(e:haxe.Exception) {
-			catchError(this, e, funcToRun);
-		}
-		
+		final res:Any = super.call(funcToRun, args);
 		LuaUtils.lastCalledHScript = null;
-		return null;
+		
+		return res;
 	}
 	
 	public static function catchError(hs:FunkinHscript, e:haxe.Exception, ?funcToRun:String):Void {
@@ -563,53 +558,47 @@ class CustomInterp extends insanity.backend.Interp {
 		} else {
 			_instanceFields = Type.getInstanceFields(Type.getClass(inst));
 		}
+		
 		return parentInstance = inst;
 	}
 
 	public function new(?environment:Environment, ?parent:Dynamic) {
 		super(environment, parent);
+		
+		safeFunctions = true;
 	}
 	
-	public override function setDefaults(wipe:Bool = true, includeConfig:Bool = true):Void {
-		super.setDefaults(wipe, includeConfig);
+	public override function trace(args:Array<Dynamic>):Void {
+		var pos = posInfos();
 		
-		variables.set('trace', Reflect.makeVarArgs(function(x:Array<Dynamic>) { // fix static target
-			var pos = posInfos();
-			
-			var v = x.shift();
-			if (x.length > 0) pos.customParams = x;
-			
-			FunkinHscript.log(Std.string(v), pos);
-		}));
+		var v = args.shift();
+		if (args.length > 0) pos.customParams = args;
+		
+		FunkinHscript.log(Std.string(v), pos);
 	}
 	
-	override function get(o:Dynamic, f:String, maybe:Bool = false):Dynamic {
-		if ( o == null ) {
-			if (!maybe) {
-				error(EInvalidAccess(f));
-			} else {
-				return null;
-			}
-		}
+	public override dynamic function onFunctionError(exception:haxe.Exception, functionName:Null<String>, functionId:Int):Void {
+		var pos:HScriptInfos = cast posInfos();
+		pos.funcName = (functionName ?? '#$functionId');
 		
-		if (o is Mirror) {
-			switch (cast(o, Mirror)) {
-				case MSuper(locals, _):
-					if (locals == null) {
-						error(EHasNoSuper);
-					} else if (locals.exists(f)) {
-						return (locals.get(f).a ?? locals.get(f).r);
-					} else {
-						error(EUnknownVariable(f));
-					}
-				default:
-			}
+		FunkinHscript.log(Std.string(exception), pos, ERROR);
+	}
+	
+	override public function get(o:Dynamic, f:String):Dynamic
+	{
+		#if hl
+		if (o is Enum) {
+			var e = Type.createEnum(o, f);
+			if (e != null) return e;
+			
+			error(EInvalidAccess(f));
 		}
+		#end
 		
 		if (o is FlxBasic && cast(o, FlxBasic).hasVar(f))
 			return cast(o, FlxBasic).getVar(f);
 		
-		return CustomReflect.getProperty(o, f);
+		return super.get(o, f);
 	}
 	override function set(o:Dynamic, f:String, v:Dynamic):Dynamic {
 		if (AbstractTools.isAbstract(v))
@@ -625,87 +614,51 @@ class CustomInterp extends insanity.backend.Interp {
 		return v;
 	}
 	override function resolve(id:String):Dynamic {
-		if (imports.exists(id)) {
-			var v:Dynamic = imports.get(id);
-			
-			if (v == null)
-				error(ECustom('Module $id does not define type $id'));
-			
-			return resolveMirror(v);
-		}
+		if (variables.exists(id) || imports.exists(id)) return super.resolve(id);
 		
-		if (!variables.exists(id)) {
-			if (_instanceFields.contains(id))
+		if (_instanceFields.contains(id))
+			return CustomReflect.getProperty(parentInstance, id);
+		
+		if (parentInstance != null) {
+			if (_instanceFields.contains(id) || _instanceFields.contains('get_$id')) {
 				return CustomReflect.getProperty(parentInstance, id);
-			
-			#if LUA_ALLOWED
-			if (FunkinLua.customFunctions.exists(id))
-				return FunkinLua.customFunctions.get(id);
-			#end
-			
-			if (parentInstance != null) {
-				if (_instanceFields.contains(id)) {
-					return CustomReflect.getProperty(parentInstance, id);
-				} else if (parentInstance.hasVar != null && parentInstance.hasVar(id)) {
-					return parentInstance.getVar(id);
-				}
+			} else if (parentInstance.hasVar != null && parentInstance.hasVar(id)) {
+				return parentInstance.getVar(id);
 			}
-			
-			error(EUnknownVariable(id));
 		}
 		
-		return resolveMirror(variables.get(id));
+		#if LUA_ALLOWED
+		if (FunkinLua.customFunctions.exists(id))
+			return FunkinLua.customFunctions.get(id);
+		#end
+		
+		return error(EUnknownVariable(id));
 	}
 	override function isResolvable(id:String):Bool {
 		return (imports.exists(id) || variables.exists(id) || _instanceFields.contains(id) || (parentInstance.hasVar != null && parentInstance.hasVar(id)));
 	}
 	override function setVar(name:String, v:Dynamic):Dynamic {
-		if (AbstractTools.isAbstract(v))
+		if (insanity.backend.types.Abstract.AbstractTools.isAbstract(v))
 			v = v.__a;
 		
-		var iv = imports.get(name);
-		if (iv != null) {
-			if (iv is Mirror) {
-				switch (iv) {
-					case MProperty(t, f):
-						if (curAccess == f) { CustomReflect.setField(t, f, v); }
-						else { CustomReflect.setProperty(t, f, v); }
-						return CustomReflect.field(t, f);
-					default:
-				}
-			}
-			
-			error(ECustom('Invalid assign'));
+		if (imports.exists(name) || variables.exists(name)) return super.setVar(name, v);
+		
+		if (_instanceFields.contains(name) || _instanceFields.contains('set_$name')) {
+			CustomReflect.setProperty(parentInstance, name, v);
+			return v;
 		}
 		
-		if (variables.exists(name)) {
-			var vv = variables.get(name);
-			if (vv is Mirror) {
-				switch (vv) {
-					case MProperty(t, f):
-						if (curAccess == f) { CustomReflect.setField(t, f, v); }
-						else { CustomReflect.setProperty(t, f, v); }
-						return CustomReflect.field(t, f);
-					default:
-				}
-			}
-			
-			variables.set(name, v);
-		} else if (_instanceFields.contains(name)) {
-			CustomReflect.setProperty(parentInstance, name, v);
-		} else {
-			if (parentInstance is FlxBasic && cast(parentInstance, FlxBasic).hasVar(name)) {
-				cast(parentInstance, FlxBasic).setVar(name, v);
-				return v;
-			}
-			
-			if (defineGlobals) {
-				variables.set(name, v);
-				return v;
-			}
-			
-			error(EUnknownVariable(name));
+		if (parentInstance is FlxBasic && cast(parentInstance, FlxBasic).hasVar(name)) {
+			cast(parentInstance, FlxBasic).setVar(name, v);
+			return v;
 		}
+		
+		if (stack.length <= 1 || defineGlobals) {
+			variables.set(name, v);
+			return v;
+		}
+		
+		error(EUnknownVariable(name));
 		
 		return v;
 		

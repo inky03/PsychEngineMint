@@ -23,6 +23,7 @@
 	<define name="LUA_ALLOWED" if="cpp" />
 	<define name="ACHIEVEMENTS_ALLOWED" />
 	<define name="DISCORD_ALLOWED" if="cpp" />
+	<define name="VIDEOS_ALLOWED" if="cpp" unless="32bits" />
 	<define name="TRANSLATIONS_ALLOWED" />
 	<define name="IRIS_DEBUG" />
 	<define name="EMIMOD"/>
@@ -38,7 +39,6 @@
 	<section if="officialBuild">
 		<define name="TITLE_SCREEN_EASTER_EGG"/>
 		<define name="BASE_GAME_FILES" />
-		<define name="VIDEOS_ALLOWED" unless="32bits"/> <!-- IF YOU WANT TO USE VIDEOS ON YOUR SOURCE MOD, GET THIS LINE OUTSIDE OF THE SECTION -->
 	</section>
 
 	<!-- ____________________________ Window Settings ___________________________ -->
@@ -116,6 +116,7 @@
 	<section if="SCRIPTS_ALLOWED">
 		<haxeflag name="-dce no" if="INCLUDE_ALL_CLASSES" />
 		<haxeflag name="--macro" value="backend.macro.Init.includeClasses()" if="INCLUDE_ALL_CLASSES" />
+		<haxeflag name="--macro" value="backend.macro.Init.includeScriptableClasses()" if="HSCRIPT_SCRIPTED_CLASSES" />
 		<haxeflag name="--macro" value="backend.macro.Init.includeScriptedAbstracts()" if="HSCRIPT_SCRIPTED_ABSTRACTS" />
 	</section>
 	
@@ -124,13 +125,13 @@
 
 	<!-- _______________________________ Libraries ______________________________ -->
 
-	<haxelib name="flixel" />
+	<haxelib name="flixel" version="6.1.2" />
 	<haxelib name="flixel-addons" />
 	<haxelib name="tjson" />
 
 	<!--Psych stuff needed-->
-	<haxelib name="hxvlc" unless = "html5" />
-	<haxelib name="linc_luajit" if="LUA_ALLOWED"/>
+	<haxelib name="hxvlc" if="VIDEOS_ALLOWED" />
+	<haxelib name="linc_luajit" if="LUA_ALLOWED" />
 	<haxelib name="hscript-insanity" if="HSCRIPT_ALLOWED" />
 	<haxelib name="hxdiscord_rpc" if="DISCORD_ALLOWED" />
 	<haxelib name="flxanimate" />

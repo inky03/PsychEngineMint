@@ -105,8 +105,6 @@ class FunkinModuleCollection extends insanity.Environment {
 			}
 		}
 		
-		@:privateAccess insanity.backend.Interp.localsPool.resize(0);
-		
 		total = instance.modules.count();
 		
 		instance.rebuildTypes();

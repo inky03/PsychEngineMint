@@ -1,6 +1,6 @@
-#if LUA_ALLOWED
 package scripting.lua;
 
+#if LUA_ALLOWED
 import backend.Song;
 import backend.WeekData;
 import backend.Highscore;
