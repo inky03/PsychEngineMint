@@ -38,14 +38,13 @@ typedef AnimArray = {
 	var offsets:Array<Int>;
 }
 
-class Character extends FlxAnimate
+class Character extends ModchartSprite
 {
 	/**
 	 * In case a character is missing, it will use this on its place
 	**/
 	public static final DEFAULT_CHARACTER:String = 'bf';
-
-	public var animOffsets:Map<String, Array<Dynamic>>;
+	
 	public var debugMode:Bool = false;
 
 	public var isPlayer:Bool = false;
@@ -91,8 +90,7 @@ class Character extends FlxAnimate
 		super(x, y);
 
 		animation = anim = new PsychAnimateController(this);
-
-		animOffsets = new Map<String, Array<Dynamic>>();
+		
 		this.isPlayer = isPlayer;
 		changeCharacter(character);
 		
@@ -416,30 +414,21 @@ class Character extends FlxAnimate
 		}
 	}
 
-	public function playAnim(AnimName:String, Force:Bool = false, Reversed:Bool = false, Frame:Int = 0):Void
+	public override function playAnim(name:String, forced:Bool = false, reversed:Bool = false, startFrame:Int = 0):Void
 	{
 		specialAnim = false;
 		
-		animation.play(AnimName, Force, Reversed, Frame);
-		_lastPlayedAnimation = AnimName;
+		super.playAnim(name, forced, reversed, startFrame);
+		_lastPlayedAnimation = name;
 
-		if (hasAnimation(AnimName))
-		{
-			var daOffset = animOffsets.get(AnimName);
-			offset.set(daOffset[0], daOffset[1]);
-		}
-		//else offset.set(0, 0);
-
-		if (curCharacter.startsWith('gf-') || curCharacter == 'gf')
-		{
-			if (AnimName == 'singLEFT')
+		if (curCharacter.startsWith('gf-') || curCharacter == 'gf') {
+			if (name.startsWith('singLEFT')) {
 				danced = true;
-
-			else if (AnimName == 'singRIGHT')
+			} else if (name.startsWith('singRIGHT')) {
 				danced = false;
-
-			if (AnimName == 'singUP' || AnimName == 'singDOWN')
+			} else if (name.startsWith('singUP') || name.startsWith('singDOWN')) {
 				danced = !danced;
+			}
 		}
 	}
 
@@ -485,16 +474,6 @@ class Character extends FlxAnimate
 			danceEveryNumBeats = Math.round(Math.max(calc, 1));
 		}
 		settingCharacterUp = false;
-	}
-
-	public function addOffset(name:String, x:Float = 0, y:Float = 0)
-	{
-		animOffsets[name] = [x, y];
-	}
-
-	public function quickAnimAdd(name:String, anim:String)
-	{
-		animation.addByPrefix(name, anim, 24, false);
 	}
 	
 	#if flixel_animate

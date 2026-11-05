@@ -1,6 +1,6 @@
 package scripting.lua;
 
-import objects.ModchartAnimateSprite;
+import objects.ModchartSprite;
 
 import openfl.utils.Assets;
 
@@ -60,7 +60,7 @@ class FlxAnimateFunctions {
 			cast (obj.animation, FlxAnimateController).addBySymbolIndices(name, symbol, indices, framerate, loop);
 			
 			if (obj.animation.curAnim == null) {
-				if (obj is ModchartSprite) cast (obj, ModchartSprite).playAnim(name, true); //is ModchartAnimateSprite
+				if (obj is ModchartSprite) cast (obj, ModchartSprite).playAnim(name, true);
 				else obj.animation.play(name, true);
 			}
 			

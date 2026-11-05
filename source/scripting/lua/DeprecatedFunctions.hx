@@ -1,7 +1,6 @@
 package scripting.lua;
 
 import objects.ModchartSprite;
-import objects.ModchartAnimateSprite;
 
 //
 // This is simply where i store deprecated functions for it to be more organized.

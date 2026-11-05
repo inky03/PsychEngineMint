@@ -24,7 +24,6 @@ import objects.Note;
 import objects.NoteSplash;
 import objects.Character;
 import objects.ModchartSprite;
-import objects.ModchartAnimateSprite;
 
 import states.MainMenuState;
 import states.StoryMenuState;
@@ -33,8 +32,6 @@ import states.FreeplayState;
 import substates.PauseSubState;
 import substates.GameOverSubstate;
 
-import scripting.CustomState;
-import scripting.CustomSubState;
 import scripting.lua.LuaUtils;
 #if HSCRIPT_ALLOWED
 import psychlua.HScript;
@@ -468,7 +465,7 @@ class FunkinLua implements FunkinScript {
 		CustomSubState.implement();
 		ReflectionFunctions.implement();
 		DeprecatedFunctions.implement();
-		#if flxanimate FlxAnimateFunctions.implement(); #end
+		#if flixel_animate FlxAnimateFunctions.implement(); #end
 		
 		#if (!HSCRIPT_ALLOWED) HScript.implement(); #end
 		#if DISCORD_ALLOWED DiscordClient.implement(); #end
@@ -735,7 +732,7 @@ class FunkinLua implements FunkinScript {
 					else luaTrace('setObjectOrder: Group $group doesn\'t exist!', false, false, ERROR);
 				}
 				else {
-					var groupOrArray:Dynamic = (CustomSubState.instance != null ? CustomSubState.instance : LuaUtils.getTargetInstance());
+					var groupOrArray:Dynamic = (CustomSubState.instance ?? LuaUtils.getTargetInstance());
 					groupOrArray.remove(leObj, true);
 					groupOrArray.insert(position, leObj);
 				}
@@ -968,8 +965,7 @@ class FunkinLua implements FunkinScript {
 				obj.playAnim(name, forced, reverse, startFrame);
 				return true;
 			} else {
-				if (obj.anim != null) obj.anim.play(name, forced, reverse, startFrame); //FlxAnimate
-				else obj.animation.play(name, forced, reverse, startFrame);
+				obj.animation.play(name, forced, reverse, startFrame);
 				return true;
 			}
 			return false;
@@ -1034,7 +1030,7 @@ class FunkinLua implements FunkinScript {
 
 		registerFunction('luaSpriteExists', function(tag:String) {
 			var obj:FlxSprite = MusicBeatState.getVariables().get(tag);
-			return (obj != null && (Std.isOfType(obj, ModchartSprite) || Std.isOfType(obj, ModchartAnimateSprite)));
+			return (obj != null && Std.isOfType(obj, ModchartSprite));
 		});
 		registerFunction('luaTextExists', function(tag:String) {
 			var obj:FlxText = MusicBeatState.getVariables().get(tag);
