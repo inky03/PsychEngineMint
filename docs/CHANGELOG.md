@@ -100,6 +100,7 @@ The current list of differences from this fork (0.0.5) to Psych Engine (1.0.4) a
 - EXTENDED Scripting (EXPERIMENTAL)
 	- Global Scripts
 		- Run absolutely everywhere
+		- Located within `scripts/global/`
 		- `onCreate` is called when the mod is initialized and `onDestroy` when the mod is unloaded (ex. disabled in Mods menu)
 		- Register custom Lua API functions in `onRegisterLuaAPI`
 			- like `createGlobalCallback` but better? i guess?
@@ -116,6 +117,9 @@ The current list of differences from this fork (0.0.5) to Psych Engine (1.0.4) a
 					testFunction() -- will print "hi!!"
 				end
 				```
+	- Scripted Classes, Enums, Interfaces, Abstracts
+		- Can be created within `scripts/modules/` or simply within scripts
+		- Should support most Haxe syntax features
 	- Custom States
 		- Switch to a custom state in HScript with `MusicBeatState.switchState(new CustomState('stateName', ?customData))`
 		- Will only admit the highest priority script (to prevent major code conflicts)
