@@ -166,7 +166,9 @@ class NoteOffsetState extends ScriptedState
 		updateMode();
 		_lastControllerMode = true;
 
+		Conductor.bpmChangeMap.resize(0);
 		Conductor.bpm = 128;
+		
 		FlxG.sound.playMusic(Paths.music('offsetSong'), 1, true);
 
 		super.create();

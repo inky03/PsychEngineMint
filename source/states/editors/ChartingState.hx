@@ -194,7 +194,7 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 	var dummyArrow:FlxSprite;
 	var isMovingNotes:Bool = false;
 	var movingNotesLastData:Int = 0;
-	var movingNotesLastY:Float = 0;
+	var movingNotesLastY:Float = -1;
 	var toysEnabled:Bool = false;
 	var downScroll:Bool = false;
 	
@@ -936,13 +936,10 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 						setSongPlaying(false);
 					
 					var downScrollMult:Int = (downScroll ? -1 : 1);
+					
 					if(mouseSnapCheckBox.checked && FlxG.mouse.wheel != 0)
 					{
-						var snap:Float = Conductor.stepCrochet / (curQuant/16) / curZoom;
-						var timeAdd:Float = (FlxG.keys.pressed.SHIFT ? 4 : 1) / (holdingAlt ? 4 : 1) * FlxG.mouse.wheel * downScrollMult * snap;
-						var time:Float = Math.round((Conductor.songPosition - timeAdd) / snap) * snap;
-						if(time > 0) time += 0.000001; //goes at the start of a section more properly
-						Conductor.songPosition = time;
+						scrollQuant(curQuant / 4 * -FlxG.mouse.wheel);
 					}
 					else
 					{
@@ -990,6 +987,7 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 
 			while(curSec > 0 && Conductor.songPosition < cachedSectionTimes[curSec] - 1)
 				loadSection(curSec - 1);
+			
 			while(curSec < cachedSectionTimes.length - 1 && Conductor.songPosition >= cachedSectionTimes[curSec + 1])
 				loadSection(curSec + 1);
 		}
@@ -1031,15 +1029,9 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 						}
 						pushedNotes.sort((a:Array<Dynamic>, b:Array<Dynamic>) -> FlxSort.byValues(FlxSort.ASCENDING, a[0], b[0]));
 						
-						final minStep:Float = Conductor.getStep(pushedNotes[0][0]);
-						
-						for (note in pushedNotes) {
-							var noteStep:Float = Conductor.getStep(note[0]);
-							
-							if (note[2] is Float) note[2] = (Conductor.getStep(note[0] + note[2]) - noteStep);
-							
-							note[0] = (noteStep - minStep);
-						}
+						var minTime:Float = Conductor.getStep(pushedNotes[0][0]);
+						for (note in pushedNotes)
+							note[0] = Conductor.getStep(note[0]);
 					}
 				}
 				else if(FlxG.keys.justPressed.V) // Paste (Ctrl + V)
@@ -1066,7 +1058,7 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 						for (note in selectedNotes)
 						{
 							if(note == null) continue;
-
+							
 							if(!note.isEvent)
 							{
 								note.changeNoteData(Std.int(note.songData[1] - minNoteData));
@@ -1077,6 +1069,7 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 						
 						addUndoAction(ADD_NOTE, {notes: pushedNotes, events: pushedEvents});
 						if (selectedNotes.length > 0) moveSelectedNotes(minNoteData, selectedNotes[0].y);
+						for (note in selectedNotes) trace(note.strumTime);
 					}
 				}
 				else if(FlxG.keys.justPressed.A) // Select All (Ctrl + A)
@@ -1315,24 +1308,23 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 				movingNotesLastData = nData;
 
 				// Move note strum time
-				if(dummyArrow.y != movingNotesLastY)
+				if (getStrumTime(dummyArrow.y) != movingNotesLastY)
 				{
-					var diff:Float = dummyArrow.y - movingNotesLastY;
-					var curSecRow:Int = 0;
-					for (note in movingNotes) //Try to figure out new strum time for the notes, DEFINITELY INACCURATE WITH BPM CHANGING, ALTHOUGH UNTESTED
+					final diff:Float = (getStrumTime(dummyArrow.y) - movingNotesLastY);
+					
+					for (note in movingNotes)
 					{
-						if(note == null) continue;
-
-						note.chartY += diff;
-						var row:Float = (note.chartY / GRID_SIZE) * curZoom;
-						while(curSecRow + 1 < cachedSectionRow.length && cachedSectionRow[curSecRow] <= row)
-							curSecRow++;
-
-						note.setStrumTime(Math.max(-5000, note.strumTime + (diff * cachedSectionCrochets[curSecRow] / 4) / GRID_SIZE * curZoom));
+						if (note == null) continue;
+						
+						note.sustainLength = (Conductor.getBeat(note.strumTime + note.sustainLength) - Conductor.getBeat(note.strumTime));
+						note.setStrumTime(note.strumTime + diff);
 						positionNoteYOnTime(note);
+						note.setSustainLength(Conductor.beatToSeconds(Conductor.getBeat(note.strumTime) + note.sustainLength) - note.strumTime, curZoom);
+						
 						if(note.isEvent) cast (note, EventMetaNote).updateEventInfo();
 					}
-					movingNotesLastY = dummyArrow.y;
+					
+					movingNotesLastY = getStrumTime(dummyArrow.y);
 				}
 			}
 			else if (!ignoreClickForThisFrame && FlxG.mouse.justPressed)
@@ -1396,12 +1388,13 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 					}
 					else if (!holdingAlt && FlxG.mouse.y >= gridBg.y && FlxG.mouse.y < gridBg.y + gridBg.height) // Add note
 					{
-						var strumTime:Float = (noteDiffY / GRID_SIZE * Conductor.stepCrochet / curZoom) + cachedSectionTimes[curSec];
+						final strumTime:Float = getStrumTime(dummyArrow.y);
+						
 						if(noteData >= 0)
 						{
 							trace('Added note at time: $strumTime');
 							var didAdd:Bool = false;
-
+							
 							var noteSetupData:Array<Dynamic> = [strumTime, noteData, 0];
 							var typeSelected:String = noteTypes[noteTypeDropDown.selectedIndex];
 							if(typeSelected != null && typeSelected.length > 0)
@@ -1530,7 +1523,7 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 						
 						var noteDiffY:Float = diffY;
 						if (downScroll) noteDiffY = (gridBg.height - diffY - (shift ? 0 : GRID_SIZE));
-						noteDiffY -= ((note.chartY - cachedSectionRow[curSec]) * GRID_SIZE * curZoom);
+						noteDiffY -= (note.chartY * GRID_SIZE * curZoom);
 						
 						var stepLength:Float = Math.max(noteDiffY / GRID_SIZE / curZoom, 0);
 						var endMs:Float = Conductor.stepToSeconds(Conductor.getStep(note.strumTime) + stepLength);
@@ -1692,7 +1685,7 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 		}
 		selectedNotes = movingNotes.members.copy();
 		isMovingNotes = true;
-		movingNotesLastY = lastY;
+		movingNotesLastY = getStrumTime(dummyArrow.y);
 		movingNotesLastData = noteData;
 		movingNotes.sort(#if static (order, a, b) -> FlxSort.byValues(order, a.strumTime, b.strumTime) #else cast PlayState.sortByTime #end);
 		addUndoAction(MOVE_NOTE, {originalNotes: originalNotes, originalEvents: originalEvents, movedNotes: movedNotes, movedEvents: movedEvents});
@@ -1773,8 +1766,7 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 
 	function showOutput(message:String, isError:Bool = false)
 	{
-		#if debug trace(message); #end
-		
+		trace(message);
 		outputTxt.text = message;
 		outputTxt.y = FlxG.height - outputTxt.height - 30;
 		outputAlpha = 4;
@@ -2285,7 +2277,6 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 	{
 		if(sec != null) curSec = sec;
 		curSec = Std.int(FlxMath.bound(curSec, 0, PlayState.SONG.notes.length-1));
-		Conductor.bpm = cachedSectionBPMs[curSec];
 		
 		var downScrollMult:Int = (downScroll ? -1 : 1);
 		if(curSec > 0)
@@ -2332,11 +2323,12 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 		var sec = getCurChartSection();
 		if(sec != null)
 		{
+			changeBpmStepper.value = Conductor.bpm = (sec.changeBPM && sec.bpm != null ? sec.bpm : PlayState.SONG.bpm);
+			
 			mustHitCheckBox.checked = sec.mustHitSection;
 			gfSectionCheckBox.checked = sec.gfSection;
 			// altAnimSectionCheckBox.checked = sec.altAnim;
 			changeBpmCheckBox.checked = sec.changeBPM;
-			changeBpmStepper.value = Conductor.bpm;
 			beatsPerSecStepper.value = sec.sectionBeats;
 
 			strumTimeStepper.step = Conductor.stepCrochet;
@@ -2345,6 +2337,7 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 			if(selectedNotes.length > 1) susLengthStepper.min = -susLengthStepper.max;
 			else susLengthStepper.min = 0;
 		}
+		
 		prevGridBg.vortexLineEnabled = gridBg.vortexLineEnabled = nextGridBg.vortexLineEnabled = vortexEnabled;
 		prevGridBg.vortexLineSpace = gridBg.vortexLineSpace = nextGridBg.vortexLineSpace = GRID_SIZE * 4 * curZoom;
 		updateWaveform();
@@ -2427,7 +2420,7 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 		}
 	}
 
-	function getMinNoteTime(sec:Int)
+	inline function getMinNoteTime(sec:Int)
 	{
 		var minTime:Float = Math.NEGATIVE_INFINITY;
 		if(sec > 0)
@@ -2435,7 +2428,7 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 		return minTime;
 	}
 
-	function getMaxNoteTime(sec:Int)
+	inline function getMaxNoteTime(sec:Int)
 	{
 		var maxTime:Float = Math.POSITIVE_INFINITY;
 		if(sec < cachedSectionTimes.length)
@@ -2443,7 +2436,7 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 		return maxTime;
 	}
 
-	function positionNoteXByData(note:MetaNote, ?data:Null<Int> = null)
+	inline function positionNoteXByData(note:MetaNote, ?data:Null<Int> = null)
 	{
 		if(data == null) data = note.songData[1];
 
@@ -2455,27 +2448,32 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 		//trace(gridBg.x, noteX);
 	}
 	
-	function forEachRenderedNote(func:MetaNote -> Void) {
+	inline function forEachRenderedNote(func:MetaNote -> Void) {
 		for (grp in [curRenderedNotes, behindRenderedNotes]) {
 			for (note in grp)
 				func(note);
 		}
 	}
-	function positionNoteYOnTime(note:MetaNote) {
+	inline function positionNoteYOnTime(note:MetaNote) {
 		var noteY:Float = Conductor.getStep(note.strumTime);
 		noteY = Math.max(noteY, -150);
 		note.chartY = noteY;
 		refreshNotePosition(note);
 	}
-	function refreshNotePosition(note:MetaNote) {
+	inline function refreshNotePosition(note:MetaNote) {
 		note.y = calculateY(note);
 		note.downScroll = downScroll;
 	}
-	function calculateY(note:MetaNote) {
+	inline function calculateY(note:MetaNote) {
 		var y:Float = note.chartY * GRID_SIZE * curZoom * (downScroll ? -1 : 1) + (GRID_SIZE / 2 - note.height / 2);
 		if (downScroll)
 			y -= GRID_SIZE;
 		return y;
+	}
+	inline function getStrumTime(y:Float):Float {
+		final sectionPos:Float = FlxMath.remapToRange(y + (downScroll ? GRID_SIZE : 0), gridBg.y, gridBg.y + gridBg.height, 0, 1);
+		
+		return Conductor.sectionToSeconds(curSec + (downScroll ? (1 - sectionPos) : sectionPos));
 	}
 
 	var characterData:Dynamic = {};
@@ -3093,7 +3091,6 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 					{
 						var dataCopy:Array<Dynamic> = makeNoteDataCopy(event.songData, true);
 						dataCopy[0] = Conductor.getStep(event.strumTime) - sectionStep;
-						
 						copiedEvents.push(dataCopy);
 						eventsCopyNum++;
 					}
@@ -3145,8 +3142,10 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 			var sec = getCurChartSection();
 			if (sec != null) {
 				var oldBPMMap:Array<BPMChangeEvent> = Conductor.copyBPMChanges();
+				
 				sec.changeBPM = true;
 				sec.bpm = changeBpmStepper.value;
+				
 				changeBpmCheckBox.checked = true;
 				adaptNotes(oldBPMMap);
 			}
@@ -3156,8 +3155,10 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 			var sec = getCurChartSection();
 			if(sec != null) {
 				var oldBPMMap:Array<BPMChangeEvent> = Conductor.copyBPMChanges();
+				
 				sec.changeBPM = changeBpmCheckBox.checked;
-				if(!Reflect.hasField(sec, 'bpm')) sec.bpm = changeBpmStepper.value;
+				sec.bpm = changeBpmStepper.value;
+				
 				adaptNotes(oldBPMMap);
 			}
 		});
@@ -3169,7 +3170,10 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 			var sec = getCurChartSection();
 			if (sec != null) {
 				var oldBPMMap:Array<BPMChangeEvent> = Conductor.copyBPMChanges();
+				
 				sec.sectionBeats = Std.int(beatsPerSecStepper.value);
+				Conductor.mapBPMChanges(PlayState.SONG);
+				
 				adaptNotes(oldBPMMap);
 			}
 		};
@@ -3182,7 +3186,7 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 		
 		objY += 25;
 		var pasteButton:PsychUIButton = new PsychUIButton(objX, objY, 'Paste Section', function() {
-			pasteCopiedNotesToSection(affectNotes.checked, affectEvents.checked);
+			pasteCopiedNotesToSection(affectNotes.checked, affectEvents.checked, cachedSectionTimes[curSec]);
 		}, 74);
 		
 		affectEvents = new PsychUICheckBox(objX + 82, objY + 2, 'Events', 60);
@@ -3193,7 +3197,7 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 			var lastCopiedNotes = copiedNotes;
 			var lastCopiedEvents = copiedEvents;
 			copyNotesOnSection(Std.int(copyLastSecStepper.value), false);
-			pasteCopiedNotesToSection(affectNotes.checked, affectEvents.checked);
+			pasteCopiedNotesToSection(affectNotes.checked, affectEvents.checked, cachedSectionTimes[curSec]);
 			copiedNotes = lastCopiedNotes;
 			copiedEvents = lastCopiedEvents;
 		}, 74);
@@ -3397,7 +3401,7 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 		}
 	}
 
-	function pasteCopiedNotesToSection(?canCopyNotes:Bool = true, ?canCopyEvents:Bool = true, ?showMessage:Bool = true) //Used on "Paste Section" and "Copy Last Section" buttons
+	function pasteCopiedNotesToSection(canCopyNotes:Bool = true, canCopyEvents:Bool = true, showMessage:Bool = true, ?pos:Float) //Used on "Paste Section" and "Copy Last Section" buttons
 	{
 		var curSectionTime:Null<Float> = cachedSectionTimes[curSec];
 		if(curSectionTime == null)
@@ -3409,30 +3413,35 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 		var nextSectionTime:Null<Float> = cachedSectionTimes[curSec + 1];
 		if (nextSectionTime == null) nextSectionTime = Math.POSITIVE_INFINITY;
 		
-		final sectionStep:Float = Conductor.getStep(curSectionTime);
-		
 		var pushedNotes:Array<MetaNote> = [];
 		var nts:Array<MetaNote> = [];
 		var evs:Array<EventMetaNote> = [];
+		
+		var minTime:Null<Float> = null;
+		
+		if (canCopyNotes) for (note in copiedNotes) if (note != null) minTime = (minTime == null ? Conductor.stepToSeconds(note[0]) : Math.min(Conductor.stepToSeconds(note[0]), minTime)); // very readable !!
+		if (canCopyEvents) for (note in copiedEvents) if (note != null) minTime = (minTime == null ? Conductor.stepToSeconds(note[0]) : Math.min(Conductor.stepToSeconds(note[0]), minTime));
+		
+		final diff:Float = ((pos ?? getStrumTime(dummyArrow.y)) - (minTime ?? 0));
+		
 		if(canCopyNotes && copiedNotes.length > 0)
 		{
 			for (note in copiedNotes)
 			{
-				if(note == null) continue;
+				if (note == null) continue;
+				
 				var dataCopy:Array<Dynamic> = makeNoteDataCopy(note, false);
 				
-				var noteStep:Float = (dataCopy[0] + sectionStep);
-				var strumTime:Float = Conductor.stepToSeconds(noteStep);
+				//if (dataCopy[0] < nextSectionTime)
+				dataCopy[0] = Conductor.stepToSeconds(dataCopy[0]); // ok well that was useless ill set it upback later
+				dataCopy[2] = (Conductor.getBeat(dataCopy[0] + dataCopy[2]) - Conductor.getBeat(dataCopy[0]));
+				dataCopy[0] += diff;
+				dataCopy[2] = (Conductor.beatToSeconds(Conductor.getBeat(dataCopy[0]) + dataCopy[2]) - dataCopy[0]);
 				
-				if (strumTime < nextSectionTime) {
-					dataCopy[0] = strumTime;
-					dataCopy[2] = Conductor.stepToSeconds(noteStep + dataCopy[2]) - strumTime;
-					
-					var createdNote = createNote(dataCopy, curSec);
-					notes.push(createdNote);
-					pushedNotes.push(createdNote);
-					nts.push(createdNote);
-				}
+				var createdNote = createNote(dataCopy, curSec);
+				notes.push(createdNote);
+				pushedNotes.push(createdNote);
+				nts.push(createdNote);
 			}
 			notes.sort(PlayState.sortByTime);
 		}
@@ -3441,22 +3450,21 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 		{
 			for (event in copiedEvents)
 			{
-				if(event == null) continue;
+				if (event == null) continue;
+				
 				var dataCopy:Array<Dynamic> = makeNoteDataCopy(event, true);
 				
-				var strumTime:Float = Conductor.stepToSeconds(dataCopy[0]);
-
-				if (strumTime < nextSectionTime) {
-					dataCopy[0] = strumTime;
-					
-					var createdEvent = createEvent(dataCopy);
-					events.push(createdEvent);
-					pushedNotes.push(createdEvent);
-					evs.push(createdEvent);
-				}
+				dataCopy[0] = Conductor.stepToSeconds(dataCopy[0]);
+				dataCopy[0] += diff;
+				
+				var createdEvent = createEvent(dataCopy);
+				events.push(createdEvent);
+				pushedNotes.push(createdEvent);
+				evs.push(createdEvent);
 			}
 			events.sort(PlayState.sortByTime);
 		}
+		
 		loadSection();
 		
 		if(showMessage)
@@ -5189,9 +5197,8 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 				if(typeSelected.length < 1) typeSelected = null;
 			}
 			
-			var sectionStart:Float = cachedSectionTimes[curSec];
-			var snapCrochet:Float = Conductor.crochet * 4 / curQuant;
-			var strumTime:Float = Math.round((Conductor.songPosition - sectionStart) / snapCrochet) * snapCrochet + sectionStart;
+			var snapCrochet:Float = (4 / curQuant);
+			var strumTime:Float = Conductor.stepToSeconds(Math.round(Conductor.getStep(Conductor.songPosition) / snapCrochet) * snapCrochet);
 			
 			var deletedNotes:Array<MetaNote> = [];
 			var addedNotes:Array<MetaNote> = [];
@@ -5203,7 +5210,7 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 			for (note in curRenderedNotes) {
 				if(note == null || note.isEvent) continue;
 				
-				var roundTime:Float = Math.round((note.strumTime - sectionStart) / snapCrochet) * snapCrochet + sectionStart;
+				var roundTime:Float = Conductor.stepToSeconds(Math.round(Conductor.getStep(note.strumTime) / snapCrochet) * snapCrochet);
 				if (note.songData[1] == num && strumTime == roundTime) {
 					deletedNotes.push(note);
 					didDelete = true;
@@ -5259,39 +5266,6 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 			vortexMoved = false;
 		}
 		
-		function noteShift(strumTime:Float) {
-			var addedNotes:Array<MetaNote> = [];
-			for (num => held in _keysPressedBuffer) {
-				if (held && _heldNotes[num] == null) {
-					var noteSetupData:Array<Dynamic> = [strumTime, num, 0];
-					var typeSelected:String = noteTypes[noteTypeDropDown.selectedIndex];
-					if (typeSelected != null) noteSetupData.push(typeSelected.trim());
-					
-					var didAdd:Bool = false;
-					var noteAdded:MetaNote = createNote(noteSetupData);
-					for (num in sectionFirstNoteID...notes.length) {
-						var note = notes[num];
-						if (note.strumTime >= strumTime) {
-							notes.insert(num, noteAdded);
-							didAdd = true;
-							break;
-						}
-					}
-					if (!didAdd) notes.push(noteAdded);
-					_heldNotes[num] = noteAdded;
-					addedNotes.push(noteAdded);
-					softReloadNotes(true);
-				}
-			}
-			if (addedNotes.length > 0) {
-				if (vortexMoved)
-					resetSelectedNotes();
-				for (note in addedNotes)
-					selectedNotes.push(note);
-				addUndoAction(ADD_NOTE, {notes: addedNotes});
-			}
-		}
-		
 		var vortexShifted:Bool = false;
 		
 		if (!FlxG.keys.pressed.CONTROL) {
@@ -5311,16 +5285,16 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 					} else {
 						curZoom = zoomList[Std.int(Math.min(zoomList.indexOf(curZoom) + 1, zoomList.length - 1))];
 					}
-					
-					loadSection();
-					showOutput('Zoom: ${Math.round(curZoom * 100)}%');
-					updateScrollY();
-					
+
 					notes.sort(PlayState.sortByTime);
 					forEachRenderedNote((note:MetaNote) -> {
 						positionNoteYOnTime(note);
 						note.updateSustainToZoom(curZoom);
 					});
+					
+					loadSection();
+					showOutput('Zoom: ${Math.round(curZoom * 100)}%');
+					updateScrollY();
 					
 				case FlxKey.A | FlxKey.D:
 					var shiftAdd:Int = (FlxG.keys.pressed.SHIFT ? 4 : 1);
@@ -5365,28 +5339,7 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 					var secCrochet:Null<Float> = cast cachedSectionCrochets[curSec];
 					if (secStartTime == null || secCrochet == null) return;
 					
-					var snap:Float = (page ? 1 : (curQuant / 4));
-					var snapCrochet:Float = secCrochet / snap;
-					noteShift(Math.round((Conductor.songPosition - secStartTime) / snapCrochet) * snapCrochet + secStartTime);
-					
-					var nextTime:Float = Conductor.songPosition - secStartTime;
-					var snapLeniency:Float = .24;
-					if (up) {
-						nextTime = Math.ceil(nextTime / snapCrochet - .002 - 1 - snapLeniency);
-					} else {
-						nextTime = Math.floor(nextTime / snapCrochet + .002 + 1 + snapLeniency);
-					}
-					nextTime *= snapCrochet;
-					if (nextTime < 0) {
-						loadSection(curSec = Std.int(Math.max(curSec - 1, 0)));
-						nextTime = secStartTime - cachedSectionCrochets[curSec] / snap;
-					} else {
-						nextTime += secStartTime;
-					}
-					Conductor.songPosition = (Math.max(0, Math.min(nextTime + .0001, FlxG.sound.music.length)) + 0.0001);
-					if (curSec < cachedSectionTimes.length - 1 && Conductor.songPosition >= cachedSectionTimes[curSec + 1])
-						loadSection(curSec + 1);
-					
+					scrollQuant((page ? 1 : (curQuant / 4)) * (up ? -1 : 1));
 					vortexShifted = true;
 				
 				default:
@@ -5399,6 +5352,58 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 			vortexMoved = true;
 			forceDataUpdate = true;
 		}
+	}
+	
+	function noteShift(strumTime:Float) {
+		var addedNotes:Array<MetaNote> = [];
+		for (num => held in _keysPressedBuffer) {
+			if (held && _heldNotes[num] == null) {
+				var noteSetupData:Array<Dynamic> = [strumTime, num, 0];
+				var typeSelected:String = noteTypes[noteTypeDropDown.selectedIndex];
+				if (typeSelected != null) noteSetupData.push(typeSelected.trim());
+				
+				var didAdd:Bool = false;
+				var noteAdded:MetaNote = createNote(noteSetupData);
+				for (num in sectionFirstNoteID...notes.length) {
+					var note = notes[num];
+					if (note.strumTime >= strumTime) {
+						notes.insert(num, noteAdded);
+						didAdd = true;
+						break;
+					}
+				}
+				
+				if (!didAdd) notes.push(noteAdded);
+				_heldNotes[num] = noteAdded;
+				addedNotes.push(noteAdded);
+				softReloadNotes(true);
+			}
+		}
+		
+		if (addedNotes.length > 0) {
+			if (vortexMoved)
+				resetSelectedNotes();
+			
+			for (note in addedNotes)
+				selectedNotes.push(note);
+			
+			addUndoAction(ADD_NOTE, {notes: addedNotes});
+		}
+	}
+	
+	public function scrollQuant(snap:Float):Void {
+		final up:Bool = (snap < 0), leniency:Float = 1.25;
+		
+		var beat:Float = (curDecStep / 4);
+		var increase:Float = (1 / snap);
+		var nextBeat:Float = ((up ? Math.ceil : Math.floor)((beat + (increase * leniency)) / Math.abs(increase)) * Math.abs(increase));
+		
+		noteShift(Conductor.beatToSeconds(Math.round(beat / Math.abs(increase)) * Math.abs(increase)));
+		
+		Conductor.songPosition = FlxMath.bound(Conductor.beatToSeconds(nextBeat) + 0.0001, 0, FlxG.sound.music.length);
+		
+		if (curSec < cachedSectionTimes.length - 1 && Conductor.songPosition >= cachedSectionTimes[curSec + 1])
+			loadSection(curSec + 1);
 	}
 	
 	function keyUp(event:KeyboardEvent) {
@@ -5427,10 +5432,10 @@ class ChartingState extends ScriptedState implements PsychUIEventHandler.PsychUI
 				while (cachedSectionTimes.length > noteSec + 1 && cachedSectionTimes[noteSec + 1] <= note.strumTime)
 					noteSec++;
 				
-				var targetTime:Float = Conductor.getStep(Conductor.songPosition + Conductor.offset + delay);
+				var targetTime:Float = Conductor.getBeat(Conductor.songPosition + Conductor.offset + delay);
 				targetTime = Math.floor(targetTime * snap) / snap;
 				
-				note.setSustainLength(Conductor.stepToSeconds(targetTime) - note.strumTime, curZoom);
+				note.setSustainLength(Conductor.beatToSeconds(targetTime) - note.strumTime, curZoom);
 			}
 		}
 	}

@@ -118,6 +118,7 @@ class TitleState extends ScriptedState
 
 		loadJsonData();
 		#if TITLE_SCREEN_EASTER_EGG easterEggData(); #end
+		Conductor.bpmChangeMap.resize(0);
 		Conductor.bpm = musicBPM;
 
 		logoBl = new FlxSprite(logoPosition.x, logoPosition.y);

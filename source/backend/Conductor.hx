@@ -394,10 +394,11 @@ class Conductor
 		if (bpmChangeMap == null || bpmChangeMap.length == 0) {
 			bpm = newBPM;
 			mapBPMChanges();
-		} else if (Math.abs(bpm - bpmChangeMap[0].bpm) < 1) {
-			bpmChangeMap[0].stepCrochet = stepCrochet;
-			bpmChangeMap[0].bpm = bpm;
-		}
+		} /* else {
+			final bpmChange:BPMChangeEvent = getBPMFromSeconds(songPosition);
+			bpmChange.stepCrochet = stepCrochet;
+			bpmChange.bpm = bpm;
+		} */
 		
 		return bpm = newBPM;
 	}
