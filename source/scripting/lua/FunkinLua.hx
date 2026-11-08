@@ -139,6 +139,14 @@ class FunkinLua implements FunkinScript {
 			return closed;
 		});
 		
+		final debug:Lua_Debug = {};
+		addLocalCallback('trace', function(x:Dynamic) {
+			Lua.getstack(lua, 1, debug);
+			Lua.getinfo(lua, 'l', debug);
+			
+			Log.print('$scriptName:${debug.currentline}: $x', INFO);
+		});
+		
 		implementLocal();
 		
 		for (name => func in customFunctions) {
