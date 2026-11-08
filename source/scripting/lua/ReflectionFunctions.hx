@@ -246,10 +246,10 @@ class ReflectionFunctions
 		funk.addLocalCallback('addInstance', addInstance);
 		
 		funk.addLocalCallback('openSubstate', function(type:String, ?args:Array<Dynamic>) {
-			var cls:Class<Dynamic> = Type.resolveClass(type);
+			var cls:Class<Dynamic> = CustomType.resolveClass(type);
 			
 			if (cls != null)
-				return funk.parentState.openSubState(Type.createInstance(cls, parseInstances(args ?? [])));
+				return funk.parentState.openSubState(CustomType.createInstance(cls, parseInstances(args ?? [])));
 			
 			FunkinLua.luaTrace('openSubstate: Couldn\'t resolve class $type', false, false, ERROR);
 		});
@@ -279,7 +279,7 @@ class ReflectionFunctions
 				var lastIndex:Int = argStr.lastIndexOf('::');
 				if (lastIndex > -1) {
 					var id:String = argStr.substring(index + 2, lastIndex);
-					var cls:Class<Dynamic> = Type.resolveClass(argStr.substring(lastIndex));
+					var cls:Class<Dynamic> = CustomType.resolveClass(argStr.substring(lastIndex));
 					
 					return LuaUtils.getVariable(cls, id);
 				} else {
