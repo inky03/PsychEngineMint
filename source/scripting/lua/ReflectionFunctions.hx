@@ -18,7 +18,9 @@ class ReflectionFunctions
 	
 	public static function implement() {
 		FunkinLua.registerFunction("getPropertyFromClass", function(classVar:String, variable:String, allowMaps:Bool = false) {
-			var cls:Dynamic = (CustomType.resolveClass(classVar) #if HSCRIPT_SCRIPTED_ABSTRACTS ?? AbstractTools.resolve(classVar) #end);
+			var cls:Dynamic = CustomType.resolveClass(classVar);
+			#if HSCRIPT_SCRIPTED_ABSTRACTS cls ??= AbstractTools.resolve(classVar); #end
+			
 			if (cls == null) {
 				FunkinLua.luaTrace('getPropertyFromClass: Type $classVar not found', false, false, ERROR);
 				return null;
@@ -28,7 +30,9 @@ class ReflectionFunctions
 			return (#if HSCRIPT_SCRIPTED_ABSTRACTS AbstractTools.isAbstract(r) ? r.__a : #end r);
 		});
 		FunkinLua.registerFunction("setPropertyFromClass", function(classVar:String, variable:String, value:Dynamic, allowMaps:Bool = false, allowInstances:Bool = false) {
-			var cls:Dynamic = (CustomType.resolveClass(classVar) #if HSCRIPT_SCRIPTED_ABSTRACTS ?? AbstractTools.resolve(classVar) #end);
+			var cls:Dynamic = CustomType.resolveClass(classVar);
+			#if HSCRIPT_SCRIPTED_ABSTRACTS cls ??= AbstractTools.resolve(classVar); #end
+			
 			if (cls == null) {
 				FunkinLua.luaTrace('getPropertyFromClass: Type $classVar not found', false, false, ERROR);
 				return null;
